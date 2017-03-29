@@ -3,9 +3,8 @@ const THREE = require('three'); // older modules are imported like this. You sho
 import Framework from './framework'
 import Agent from './agent'
 
-var object;
-var clock;
 var grid;
+var scene;
 
 function Marker(x,y,z){
   this.position = new THREE.Vector3(x,y,z);
@@ -48,7 +47,7 @@ function Grid(size){
 
  //sprinkle 50 markers in each cell
  for (var c = 0; c < this.cells.length; c++){
-  this.sprinkleMarkers(this.cells[c], 50);
+  this.sprinkleMarkers(this.cells[c], 100);
  }
 
 
@@ -115,6 +114,18 @@ function Grid(size){
 
  };
 
+ this.clearAgents = function(){
+  var i = 1;
+  var currentSceneChild = scene.children[scene.children.length - i];
+  console.log(currentSceneChild.geometry.type == "ConeGeometry");
+  while(currentSceneChild.geometry.type == "ConeGeometry"){
+    scene.remove(currentSceneChild);
+    i++;
+    currentSceneChild = scene.children[scene.children.length - i];
+  }
+
+ }
+
 }
 
 function Cell(){
@@ -124,7 +135,7 @@ function Cell(){
 
 // called after the scene loads
 function onLoad(framework) {
-  var scene = framework.scene;
+  scene = framework.scene;
   var camera = framework.camera;
   var renderer = framework.renderer;
   var gui = framework.gui;
@@ -139,9 +150,6 @@ function onLoad(framework) {
   gui.add(camera, 'fov', 0, 180).onChange(function(newVal) {
     camera.updateProjectionMatrix();
   });
-
-
-
 
   var adamMaterial = new THREE.ShaderMaterial({
     uniforms: {
@@ -193,6 +201,26 @@ function onLoad(framework) {
   
   scene.add(agent1.mesh);
 
+  //handle different scenarios
+  var scenarios = function(){
+    
+    this.scenario1 = function(){
+      console.log("scenario1");
+      grid.clearAgents();
+      
+      var agent1 = new Agent();
+      grid.agents.push(agent1);
+      scene.add(agent1.mesh);
+    };
+    
+    this.scenario2 = function(){
+      console.log("scenario2");
+    };
+
+  };
+  var myScenarios = new scenarios();
+  gui.add(myScenarios, 'scenario1');
+  //////////////////////////////////
 
 }
 
