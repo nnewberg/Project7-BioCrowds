@@ -5,6 +5,7 @@ import Agent from './agent'
 
 var grid;
 var scene;
+var ownedMarkerPoints;
 
 function Marker(x,y,z){
   this.position = new THREE.Vector3(x,y,z);
@@ -51,7 +52,7 @@ function Grid(size){
  }
 
 
- //returns the cell that this marker occupies
+ //returns the cell that this position
  this.getCellAtPos = function(pos){
   
   var index = (Math.floor(pos.x) + 
@@ -73,11 +74,39 @@ function Grid(size){
   if(topCell)
     closeCells.push(topCell);
 
+  var topLeftPos = cell.position.clone();
+  topLeftPos.z += 1.0;
+  topLeftPos.z -= 1.0;
+  var topLeftCell = this.getCellAtPos(topLeftPos);
+  if (topLeftCell)
+    closeCells.push(topCell);
+
+  var topRightPos = cell.position.clone();
+  topRightPos.z += 1.0;
+  topRightPos.z += 1.0;
+  var topRightCell = this.getCellAtPos(topRightPos);
+  if (topRightCell)
+    closeCells.push(topRightCell);
+
   var botPos = cell.position.clone();
   botPos.z -= 1.0;
   var botCell = this.getCellAtPos(botPos);
   if(botCell)
     closeCells.push(botCell);
+
+  var botLeftPos = cell.position.clone();
+  botLeftPos.z -= 1.0;
+  botLeftPos.z -= 1.0;
+  var botLeftCell = this.getCellAtPos(botLeftPos);
+  if (botLeftCell)
+    closeCells.push(botLeftCell);
+
+  var botRightPos = cell.position.clone();
+  botRightPos.z -= 1.0;
+  botRightPos.z += 1.0;
+  var botRightCell = this.getCellAtPos(botRightPos);
+  if (botRightCell)
+    closeCells.push(botRightCell);
 
   var leftPos = cell.position.clone();
   leftPos.x -= 1.0;
@@ -99,7 +128,7 @@ function Grid(size){
  this.getClosestAgent = function(marker){
   var closestAgent;
   var closestAgentDist = Infinity;
-  var maxRadius = 0.5; //max dist from agent/marker
+  var maxRadius = 1.0; //max dist from agent/marker
 
   for (var i = 0; i < grid.agents.length; i++){
       var currAgent = grid.agents[i];
@@ -115,15 +144,22 @@ function Grid(size){
  };
 
  this.clearAgents = function(){
-  var i = 1;
-  var currentSceneChild = scene.children[scene.children.length - i];
-  console.log(currentSceneChild.geometry.type == "ConeGeometry");
-  while(currentSceneChild.geometry.type == "ConeGeometry"){
-    scene.remove(currentSceneChild);
-    i++;
-    currentSceneChild = scene.children[scene.children.length - i];
-  }
 
+  scene.children.forEach(function(object){
+    if (object.geometry.type == "ConeGeometry"){
+      scene.remove(object);
+    }
+  });
+
+ }
+
+ //frees ownership of markers
+ this.freeMarkers = function(){
+  for (var c = 0; c < this.cells.length; c++){
+    for (var m = 0; m < this.cells[c].markers.length; m++ ){
+      this.cells[c].markers[m].isOwned = false;
+    }
+  }
  }
 
 }
@@ -186,20 +222,22 @@ function onLoad(framework) {
   var markersGeo = new THREE.Geometry();
   var markersMat =  new THREE.PointsMaterial( { color: 0xFFA500 } );
   markersMat.sizeAttenuation = false;
-  markersMat.size = 5.0;
+  markersMat.size = 2.0;
   for (var c = 0; c < grid.cells.length; c++){
     for (var i = 0; i < grid.cells[c].markers.length; i++){
       markersGeo.vertices.push(grid.cells[c].markers[i].position);
     }
   }
-
   var markerPoints =  new THREE.Points( markersGeo, markersMat );
   scene.add(markerPoints);
-
-  var agent1 = new Agent();
-  grid.agents.push(agent1);
   
-  scene.add(agent1.mesh);
+  var ownedMarkersGeo = new THREE.Geometry();
+  ownedMarkersGeo.verticesNeedUpdate = true;
+  var ownedMarkersMat = new THREE.PointsMaterial( { color: 0x00FF00 } );
+  ownedMarkersMat.sizeAttenuation = false;
+  ownedMarkersMat.size = 5.0;
+  ownedMarkerPoints = new THREE.Points(ownedMarkersGeo, ownedMarkersMat);
+  scene.add(ownedMarkerPoints);
 
   //handle different scenarios
   var scenarios = function(){
@@ -207,10 +245,20 @@ function onLoad(framework) {
     this.scenario1 = function(){
       console.log("scenario1");
       grid.clearAgents();
+      grid.freeMarkers();
       
       var agent1 = new Agent();
+      agent1.goal = new THREE.Vector3(2.5,0.0,4.5);
       grid.agents.push(agent1);
       scene.add(agent1.mesh);
+
+      var agent2 = new Agent();
+      agent2.position = new THREE.Vector3(4.5,0.0,4.0);
+      agent2.goal = new THREE.Vector3(2.5,0.0,4.5);
+      grid.agents.push(agent2);
+      scene.add(agent2.mesh);
+
+
     };
     
     this.scenario2 = function(){
@@ -230,34 +278,53 @@ function onUpdate(framework) {
   if(grid){
     
     //1. assign each marker to an agent
-    //garuntees no marker is owned by two agents
-    
+    //garuntees no two agents own the same marker
     for(var a = 0; a < grid.agents.length; a++){
       
       var agent = grid.agents[a];
       //look at the cell each agent occupies
-      var currCell = grid.getCellAtPos(agent.position);
-      
-      //look at each marker in each of those cells
-      for(var m = 0; m < currCell.markers.length; m++){
+      var agentCell = grid.getCellAtPos(agent.position);
+
+      //for loop for adjcent cells 
+      var adjacentCells = grid.getClosestCells(agentCell);
+      for (var c = 0; c < adjacentCells.length; c++){
+             //look at each marker in each of those cells
+        var currCell = adjacentCells[c];
+        if (currCell){
+
+          for(var m = 0; m < currCell.markers.length; m++){
+          
+          var marker = currCell.markers[m];
+          var closestAgent = grid.getClosestAgent(marker);
+          //only give the marker to the agent if it's not owned
+          if(closestAgent && !marker.isOwned){
+            closestAgent.markers.push(marker);
+            marker.isOwned = true;
+            ownedMarkerPoints.geometry.verticesNeedUpdate = true;
+            ownedMarkerPoints.geometry.elementsNeedUpdate = true;
+            ownedMarkerPoints.geometry.vertices.push(marker.position);
+          }
+          // }else if (marker.isOwned){
+          //   console.log("owned");
+          // }
         
-        var marker = currCell.markers[m];
-        var closestAgent = grid.getClosestAgent(marker);
-        //only give the marker to the agent if it's not owned
-        if(closestAgent && !marker.isOwned){
-          closestAgent.markers.push(marker);
-          marker.isOwned = true;
         }
-      
+      }else{
+        // console.log(agent.position);
       }
+    }
+ 
 
       //2. update each agent 
       //(position etc based on markers/goal)
-      agent.update();
 
+      agent.update();
     }
 
+    grid.freeMarkers();
+
   }
+
 
 }
 
